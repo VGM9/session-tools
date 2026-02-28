@@ -1,0 +1,26 @@
+{
+  "name": "@vgm9/session-tools",
+  "version": "0.3.0",
+  "description": "Tools for parsing and extracting data from VS Code chat session JSON/JSONL files (supports VS Code >=1.109 JSONL mutation log format)",
+  "main": "lib/index.js",
+  "bin": {
+    "session-extract-images": "./cli/extract-images.js",
+    "session-list": "./cli/list-sessions.js",
+    "session-read-message": "./cli/read-message.js",
+    "ctx": "./cli/ctx.js"
+  },
+  "scripts": {
+    "test": "node test/test.js",
+    "read-message": "node cli/read-message.js",
+    "list-sessions": "node cli/list-sessions.js",
+    "extract-images": "node cli/extract-images.js"
+  },
+  "keywords": ["vscode", "copilot", "session", "extraction", "images"],
+  "author": "ALTAIR 0.0.Q",
+  "license": "MIT",
+  "dependencies": {},
+  "peerDependencies": {
+    "@vgm9/appdata-path": "^0.1.0"
+  }
+}
+
