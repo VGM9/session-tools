@@ -20,7 +20,11 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { parseSession, replayJsonl, sanitizeSession, sanitizeContent } = require('../lib/index');
+const {
+  parseSession, replayJsonl,
+  sanitizeSession, sanitizeContent,
+  getSessionMetadata, resolveJsonlPath, stripBlobStrings,
+} = require('../lib/index');
 
 // ---------------------------------------------------------------------------
 // Minimal test runner
@@ -401,6 +405,187 @@ if (!fs.existsSync(sanitizedFixturePath)) {
     assert.ok(linesWithFuzz.length > 0, 'sanitized file must contain fuzz markers');
   });
 }
+
+// ---------------------------------------------------------------------------
+// SECTION 4: stripBlobStrings unit tests
+// ---------------------------------------------------------------------------
+
+section('4. stripBlobStrings — unit tests');
+
+test('short strings are passed through unchanged', () => {
+  const input = '{"key":"short value","num":42}';
+  assert.strictEqual(stripBlobStrings(input), input);
+});
+
+test('string over threshold is replaced with ""', () => {
+  const blob = 'A'.repeat(200_001);
+  const input = `{"key":"${blob}"}`;
+  const output = stripBlobStrings(input, 200_000);
+  assert.strictEqual(output, '{"key":""}');
+});
+
+test('only the oversized string is stripped, surrounding structure intact', () => {
+  const blob = 'B'.repeat(200_001);
+  const input = `{"before":"ok","blob":"${blob}","after":"also ok"}`;
+  const output = stripBlobStrings(input, 200_000);
+  const parsed = JSON.parse(output);
+  assert.strictEqual(parsed.before, 'ok');
+  assert.strictEqual(parsed.blob, '');
+  assert.strictEqual(parsed.after, 'also ok');
+});
+
+test('backslash-escaped quotes inside strings do not confuse the scanner', () => {
+  // A string containing \" — must not be mistaken for the closing quote
+  const input = '{"a":"has \\"escaped\\" quotes","b":"short"}';
+  assert.strictEqual(stripBlobStrings(input), input);
+});
+
+test('multiple blobs in one document all stripped', () => {
+  const b = 'X'.repeat(200_001);
+  const input = `{"a":"${b}","b":"keep","c":"${b}"}`;
+  const output = stripBlobStrings(input, 200_000);
+  const parsed = JSON.parse(output);
+  assert.strictEqual(parsed.a, '');
+  assert.strictEqual(parsed.b, 'keep');
+  assert.strictEqual(parsed.c, '');
+});
+
+// ---------------------------------------------------------------------------
+// SECTION 5: getSessionMetadata — unit tests with synthetic fixtures
+// ---------------------------------------------------------------------------
+
+section('5. getSessionMetadata — synthetic fixtures');
+
+const os = require('os');
+const tmpDir = os.tmpdir();
+
+function writeTmpFile(name, content) {
+  const p = path.join(tmpDir, name);
+  fs.writeFileSync(p, content, 'utf8');
+  return p;
+}
+
+test('old JSON format: schemaVersion=n/a, patchCount correct', () => {
+  const content = buildOldJson({
+    customTitle: 'My Old Session',
+    requests: [
+      { summary: null },
+      { summary: { value: 'compacted' } },
+      { summary: null },
+    ],
+  });
+  const p = writeTmpFile('parse-test-old.json', content);
+  const meta = getSessionMetadata(p);
+  assert.strictEqual(meta.schemaVersion, 'n/a');
+  assert.strictEqual(meta.title, 'My Old Session');
+  assert.strictEqual(meta.patchCount, 1);
+});
+
+test('JSONL format: schemaVersion, title, patchCount extracted', () => {
+  const content = buildJsonl({
+    version: 5,
+    customTitle: 'My JSONL Session',
+    patches: [
+      { requestIndex: 3, summary: { value: 'compacted A' } },
+      { requestIndex: 7, summary: { value: 'compacted B' } },
+    ],
+  });
+  const p = writeTmpFile('parse-test-jsonl.jsonl', content);
+  const meta = getSessionMetadata(p);
+  assert.strictEqual(meta.schemaVersion, '5');
+  assert.strictEqual(meta.title, 'My JSONL Session');
+  assert.strictEqual(meta.patchCount, 2);
+});
+
+test('JSONL: title from kind:1 customTitle patch, not just kind:0 snapshot', () => {
+  // Build JSONL where snapshot has no customTitle, but a kind:1 sets it
+  const lines = [
+    JSON.stringify({ kind: 0, v: { version: 3, sessionId: 'aaa', requests: [] } }),
+    JSON.stringify({ kind: 1, k: ['customTitle'], v: 'Late Title Set' }),
+  ];
+  const p = writeTmpFile('parse-test-title.jsonl', lines.join('\n'));
+  const meta = getSessionMetadata(p);
+  assert.strictEqual(meta.title, 'Late Title Set');
+});
+
+test('mtime cache: same path re-read returns cached result without re-parsing', () => {
+  const content = buildJsonl({ version: 9, customTitle: 'Cached' });
+  const p = writeTmpFile('parse-test-cache.jsonl', content);
+  const first = getSessionMetadata(p);
+  // Calling again should hit the mtime cache (same mtime)
+  const second = getSessionMetadata(p);
+  assert.strictEqual(first.title, second.title);
+  assert.strictEqual(first.schemaVersion, second.schemaVersion);
+});
+
+test('missing file returns error sentinel', () => {
+  const meta = getSessionMetadata('/nonexistent/path/to/session.jsonl');
+  assert.strictEqual(meta.schemaVersion, 'error');
+  assert.strictEqual(meta.patchCount, 'error');
+  assert.strictEqual(meta.title, null);
+});
+
+// ---------------------------------------------------------------------------
+// SECTION 6: getSessionMetadata — sanitized fixture integration
+// ---------------------------------------------------------------------------
+
+section('6. getSessionMetadata — sanitized fixture integration');
+
+if (!fs.existsSync(sanitizedFixturePath)) {
+  skip('getSessionMetadata on e9311698-sanitized.jsonl', 'fixture not found');
+} else {
+  test('getSessionMetadata: patchCount=6', () => {
+    const meta = getSessionMetadata(sanitizedFixturePath);
+    assert.strictEqual(meta.patchCount, 6);
+  });
+
+  test('getSessionMetadata: schemaVersion=3', () => {
+    const meta = getSessionMetadata(sanitizedFixturePath);
+    assert.strictEqual(meta.schemaVersion, '3');
+  });
+
+  test('getSessionMetadata: title correct', () => {
+    const meta = getSessionMetadata(sanitizedFixturePath);
+    assert.strictEqual(meta.title, 'Managing AI Agents for Nontechnical Client Projects');
+  });
+
+  test('getSessionMetadata: mtime cache works (call twice, same result)', () => {
+    const a = getSessionMetadata(sanitizedFixturePath);
+    const b = getSessionMetadata(sanitizedFixturePath);
+    assert.deepStrictEqual(a, b);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// SECTION 7: resolveJsonlPath — basic
+// ---------------------------------------------------------------------------
+
+section('7. resolveJsonlPath — basic');
+
+test('returns null for a UUID that cannot exist on disk', () => {
+  // A zero UUID will never exist on any machine
+  const result = resolveJsonlPath('00000000-0000-0000-0000-000000000000');
+  assert.strictEqual(result, null);
+});
+
+test('decodes base64-encoded UUID before scanning', () => {
+  // Encode zero UUID as base64 — still returns null (not on disk)
+  const b64 = Buffer.from('00000000-0000-0000-0000-000000000000').toString('base64');
+  const result = resolveJsonlPath(b64);
+  assert.strictEqual(result, null);
+});
+
+test('returns null when APPDATA is not set (simulated)', () => {
+  // Temporarily unset APPDATA, call, restore. Does not require the file to exist.
+  const saved = process.env.APPDATA;
+  delete process.env.APPDATA;
+  try {
+    const result = resolveJsonlPath('00000000-0000-0000-0000-000000000000');
+    assert.strictEqual(result, null);
+  } finally {
+    if (saved !== undefined) { process.env.APPDATA = saved; }
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Summary
