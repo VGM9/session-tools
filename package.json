@@ -1,12 +1,19 @@
 {
   "name": "@vgm9/session-tools",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Tools for parsing and extracting data from VS Code chat session JSON/JSONL files (supports VS Code >=1.109 JSONL mutation log format)",
   "main": "lib/index.js",
+  "types": "./lib/index.d.ts",
   "exports": {
-    ".": "./lib/index.js",
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
     "./sanitize": "./lib/sanitize.js",
-    "./parse": "./lib/parse.js"
+    "./parse": {
+      "types": "./lib/parse.d.ts",
+      "default": "./lib/parse.js"
+    }
   },
   "bin": {
     "session-extract-images": "cli/extract-images.js",
