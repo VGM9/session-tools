@@ -1,6 +1,6 @@
 {
   "name": "@vgm9/session-tools",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "description": "Tools for parsing and extracting data from VS Code chat session JSON/JSONL files (supports VS Code >=1.109 JSONL mutation log format)",
   "main": "lib/index.js",
   "exports": {
@@ -9,11 +9,11 @@
     "./parse": "./lib/parse.js"
   },
   "bin": {
-    "session-extract-images": "./cli/extract-images.js",
-    "session-list": "./cli/list-sessions.js",
-    "session-read-message": "./cli/read-message.js",
-    "session-sanitize": "./cli/sanitize.js",
-    "ctx": "./cli/ctx.js"
+    "session-extract-images": "cli/extract-images.js",
+    "session-list": "cli/list-sessions.js",
+    "session-read-message": "cli/read-message.js",
+    "session-sanitize": "cli/sanitize.js",
+    "ctx": "cli/ctx.js"
   },
   "scripts": {
     "test": "node test/test.js",
@@ -21,12 +21,21 @@
     "list-sessions": "node cli/list-sessions.js",
     "extract-images": "node cli/extract-images.js"
   },
-  "keywords": ["vscode", "copilot", "session", "extraction", "images"],
+  "keywords": [
+    "vscode",
+    "copilot",
+    "session",
+    "extraction",
+    "images"
+  ],
   "author": "ALTAIR 0.0.Q",
   "license": "MIT",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
   "dependencies": {},
-  "peerDependencies": {
+  "optionalDependencies": {
     "@vgm9/appdata-path": "^0.1.0"
   }
 }
-
