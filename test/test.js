@@ -588,6 +588,84 @@ test('returns null when APPDATA is not set (simulated)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// SECTION 8: strip-attachments
+// ---------------------------------------------------------------------------
+
+section('8. strip-attachments');
+
+const { stripAttachments, reinflateAttachments, makeRef, parseRef } = require('../lib/strip-attachments');
+
+test('8a exports: stripAttachments is a function', () => {
+  assert.strictEqual(typeof stripAttachments, 'function');
+});
+
+test('8a exports: reinflateAttachments is a function', () => {
+  assert.strictEqual(typeof reinflateAttachments, 'function');
+});
+
+test('8a exports: makeRef is a function', () => {
+  assert.strictEqual(typeof makeRef, 'function');
+});
+
+test('8a exports: parseRef is a function', () => {
+  assert.strictEqual(typeof parseRef, 'function');
+});
+
+test('8b dry-run on synthetic JSONL with no blobs: blobsFound=0', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sa-test-'));
+  const tmpFile = path.join(tmpDir, 'session.jsonl');
+  // All string values are short (well under 100KB threshold)
+  const content = '{"kind":0,"v":{"short":"hello","num":42}}\n{"kind":1,"v":{"msg":"world"}}\n';
+  fs.writeFileSync(tmpFile, content, 'utf8');
+  const result = stripAttachments(tmpFile, { attachmentDir: path.join(tmpDir, 'att'), dryRun: true });
+  assert.strictEqual(result.blobsFound, 0);
+  assert.strictEqual(result.dryRun, true);
+  assert.strictEqual(fs.readFileSync(tmpFile, 'utf8'), content, 'file must be unmodified in dry-run');
+  fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('8c strip+reinflate roundtrip: 150K blob extracted then restored', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sa-roundtrip-'));
+  const attDir = path.join(tmpDir, 'att');
+  const tmpFile = path.join(tmpDir, 'session.jsonl');
+  const blob = 'x'.repeat(150_000);
+  const original = `{"kind":99,"v":{"content":"${blob}"}}\n`;
+  fs.writeFileSync(tmpFile, original, 'utf8');
+
+  // Strip
+  const result = stripAttachments(tmpFile, { attachmentDir: attDir });
+  assert.strictEqual(result.blobsFound, 1, 'should find 1 blob');
+  const stripped = fs.readFileSync(tmpFile, 'utf8');
+  assert.ok(stripped.includes('__qhoami:sha256:'), 'stripped file must contain ref marker');
+  assert.ok(result.attachments.length === 1, 'one attachment record');
+  assert.ok(fs.existsSync(result.attachments[0].savedPath), 'attachment file must exist on disk');
+
+  // Reinflate
+  const count = reinflateAttachments(tmpFile, attDir);
+  assert.strictEqual(count, 1, 'should restore 1 reference');
+  const restored = fs.readFileSync(tmpFile, 'utf8');
+  assert.strictEqual(restored, original, 'restored content must match original exactly');
+
+  fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('8d makeRef/parseRef roundtrip', () => {
+  const sha = 'a'.repeat(64);
+  const ref = makeRef(sha, 12345, 'image/png');
+  const parsed = parseRef(ref);
+  assert.ok(parsed !== null, 'parseRef must return non-null for valid ref');
+  assert.strictEqual(parsed.sha256, sha);
+  assert.strictEqual(parsed.bytes, 12345);
+  assert.strictEqual(parsed.mime, 'image/png');
+});
+
+test('8d parseRef returns null for non-ref string', () => {
+  assert.strictEqual(parseRef('not a ref'), null);
+  assert.strictEqual(parseRef(''), null);
+  assert.strictEqual(parseRef('__qhoami:sha256:tooshort:bytes:0:mime:x__'), null);
+});
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 
